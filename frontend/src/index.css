@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ─── Monokai Color Palette ─── */
+  --mono-bg: #272822;
+  --mono-bg-light: #2d2e27;
+  --mono-bg-hover: #3e3d32;
+  --mono-bg-active: #49483e;
+  --mono-border: #3e3d32;
+  --mono-fg: #f8f8f2;
+  --mono-fg-dim: #a6a69b;
+  --mono-comment: #75715e;
+  --mono-red: #f92672;
+  --mono-orange: #fd971f;
+  --mono-yellow: #e6db74;
+  --mono-green: #a6e22e;
+  --mono-cyan: #66d9ef;
+  --mono-purple: #ae81ff;
+
+  /* ─── VS Code Layout ─── */
+  --titlebar-bg: #1e1f1c;
+  --sidebar-bg: #272822;
+  --editor-bg: #272822;
+  --panel-bg: #272822;
+  --statusbar-bg: #414339;
+  --tab-active-bg: #272822;
+  --tab-inactive-bg: #1e1f1c;
+
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+}
+
+/* ─── Reset ─── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-mono);
+  background: var(--mono-bg);
+  color: var(--mono-fg);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── Scrollbar (VS Code style) ─── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 121, 121, 0.7);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Selection ─── */
+::selection {
+  background: rgba(174, 129, 255, 0.3);
+}
+
+/* ─── Number Input Spinners (white arrows) ─── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  filter: invert(1);
+  opacity: 0.7;
+}
+
+input[type='number']::-webkit-inner-spin-button:hover,
+input[type='number']::-webkit-outer-spin-button:hover {
+  opacity: 1;
+}

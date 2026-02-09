@@ -1,0 +1,37 @@
+# ─── OS ───
+.DS_Store
+Thumbs.db
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Frontend (Node/Vite) ───
+frontend/node_modules/
+frontend/dist/
+*.log
+
+# ─── Backend C++ (algo) ───
+backend/algo/third_party/
+backend/algo/output/
+backend/algo/*.o
+backend/algo/solver
+backend/algo/*.dSYM/
+
+# ─── Backend Go (engine) ───
+backend/engine/bin/
+backend/engine/go.sum
+
+# ─── Gemini / Agent ───
+.gemini/
+.agent/
+
+# ─── General build artifacts ───
+*.out
+*.exe
+*.dylib
+*.so
+*.a

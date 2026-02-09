@@ -1,0 +1,21 @@
+CompileFlags:
+  Add:
+    - "-std=c++20"
+    - "-I/Users/zdong/cxmt-ra-smart-eval/backend/algo/src"
+    - "-I/Users/zdong/cxmt-ra-smart-eval/backend/algo/third_party/highs-install/include"
+    - "-I/Users/zdong/cxmt-ra-smart-eval/backend/algo/third_party/highs-install/include/highs"
+    - "-I/Users/zdong/cxmt-ra-smart-eval/backend/algo/third_party/fmt-install/include"
+  Remove:
+    - "-W*"
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+
+Hover:
+  ShowAKA: Yes
