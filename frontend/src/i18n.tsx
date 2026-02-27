@@ -23,6 +23,7 @@ export interface I18nStrings {
     execution: string;
     chipConfig: string;
     poissonSparse: string;
+    poissonDispersion: string;
     rowColPct: string;
     preview: string;
     advancedParams: string;
@@ -90,6 +91,7 @@ const EN: I18nStrings = {
     execution: '// execution',
     chipConfig: '// chip config',
     poissonSparse: '// Poisson sparse',
+    poissonDispersion: '// dispersion (φ=0: Poisson, φ>0: overdispersed)',
     rowColPct: '// row/col as % of sparse',
     preview: '// preview',
     advancedParams: '// advanced params',
@@ -153,6 +155,7 @@ const ZH: I18nStrings = {
     execution: '// 执行',
     chipConfig: '// 芯片配置',
     poissonSparse: '// 泊松稀疏故障',
+    poissonDispersion: '// 发散参数 (φ=0:泊松, φ>0:负二项/发散加大)',
     rowColPct: '// row/col 占 sparse 百分比',
     preview: '// 预览',
     advancedParams: '// 高级参数',

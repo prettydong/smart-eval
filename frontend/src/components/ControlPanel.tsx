@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Box, Button, FormControl, InputLabel, MenuItem, Select,
     TextField, Typography, Stack, CircularProgress, Collapse,
@@ -11,6 +11,84 @@ interface ControlPanelProps {
     onSolve: (req: SolveRequest) => void;
     loading: boolean;
 }
+
+const getFieldSx = (th: any) => ({
+    mb: 0.5,
+    '& .MuiInputLabel-root': { fontSize: '0.9rem', color: th.textMuted },
+    '& .MuiOutlinedInput-root': {
+        color: th.text,
+        '& fieldset': { borderColor: th.border },
+        '&:hover fieldset': { borderColor: th.textMuted },
+        '&.Mui-focused fieldset': { borderColor: th.cyan },
+    },
+});
+
+// 整数输入框（修复前导零 bug）
+const F = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => {
+    const { theme: th } = useAppTheme();
+    const [text, setText] = useState(String(value));
+
+    // 外部 value 变化时同步（例如重置）
+    useEffect(() => { setText(String(value)); }, [value]);
+
+    return (
+        <TextField label={label} type="text" size="small" fullWidth
+            value={text}
+            onChange={(e) => {
+                const raw = e.target.value;
+                // 允许输入过程中为空或纯数字
+                if (raw === '' || /^\d+$/.test(raw)) {
+                    // 去除前导零："0123" → "123"，但保留 "0"
+                    const clean = raw === '' ? '' : String(parseInt(raw, 10));
+                    setText(clean);
+                    onChange(clean === '' ? 0 : parseInt(clean, 10));
+                }
+            }}
+            onBlur={() => {
+                // 失焦时如果空则补全 0
+                if (text === '') { setText('0'); onChange(0); }
+            }}
+            slotProps={{ htmlInput: { min: 0, style: { padding: '4px 8px', fontSize: '0.95rem' } } }}
+            sx={getFieldSx(th)} />
+    );
+};
+
+// 浮点输入框（修复前导零）
+const Ff = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => {
+    const { theme: th } = useAppTheme();
+    const [text, setText] = useState(String(value));
+
+    useEffect(() => { setText(String(value)); }, [value]);
+
+    return (
+        <TextField label={label} type="text" size="small" fullWidth
+            value={text}
+            onChange={(e) => {
+                const raw = e.target.value;
+                // 允许输入浮点数（小数点 + 数字）
+                if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+                    // 去除前导零："01.2" → "1.2"，但 "0.2" 保留
+                    let clean = raw;
+                    if (/^0\d/.test(raw)) clean = raw.replace(/^0+/, '') || '0';
+                    setText(clean);
+                    const num = parseFloat(clean);
+                    if (!isNaN(num)) onChange(num);
+                }
+            }}
+            onBlur={() => {
+                const num = parseFloat(text);
+                if (isNaN(num)) { setText('0'); onChange(0); }
+                else { setText(String(num)); onChange(num); }
+            }}
+            slotProps={{ htmlInput: { min: 0, step: 0.5, style: { padding: '4px 8px', fontSize: '0.95rem' } } }}
+            sx={getFieldSx(th)} />
+    );
+};
+
+const S = ({ text }: { text: string }) => {
+    const { theme: th } = useAppTheme();
+    return <Typography sx={{ fontSize: '0.85rem', color: th.textMuted, mb: 0.5, mt: 1 }}>{text}</Typography>;
+};
 
 export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
     const { theme: th } = useAppTheme();
@@ -27,6 +105,7 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
     const [chipCnt, setChipCnt] = useState(100);
     const [chipBankCnt, setChipBankCnt] = useState(4);
     const [lambdaSparse, setLambdaSparse] = useState(100);
+    const [sparseDispersion, setSparseDispersion] = useState(0); // φ=0: 纯泊松
     const [rowPct, setRowPct] = useState(10);
     const [colPct, setColPct] = useState(10);
 
@@ -56,7 +135,9 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
             req.sparse = sparse; req.rowfail = rowfail; req.colfail = colfail; req.bankCnt = bankCnt;
         } else {
             req.chipCnt = chipCnt; req.bankCnt = chipBankCnt;
-            req.lambdaSparse = lambdaSparse; req.rowPct = rowPct; req.colPct = colPct;
+            req.lambdaSparse = lambdaSparse;
+            req.sparseDispersion = sparseDispersion;
+            req.rowPct = rowPct; req.colPct = colPct;
         }
         if (mode === 'lcr') { req.cpsPerRegion = cpsPerRegion; req.lcrCap = lcrCap; }
         else { req.ccrGroupsPerSection = ccrGroupsPerSection; req.ccrCap = ccrCap; }
@@ -64,34 +145,7 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
         onSolve(req);
     };
 
-    const fieldSx = {
-        mb: 0.5,
-        '& .MuiInputLabel-root': { fontSize: '0.9rem', color: th.textMuted },
-        '& .MuiOutlinedInput-root': {
-            color: th.text,
-            '& fieldset': { borderColor: th.border },
-            '&:hover fieldset': { borderColor: th.textMuted },
-            '&.Mui-focused fieldset': { borderColor: th.cyan },
-        },
-    };
 
-    const F = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
-        <TextField label={label} type="number" size="small" fullWidth value={value}
-            onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-            slotProps={{ htmlInput: { min: 0, style: { padding: '4px 8px', fontSize: '0.95rem' } } }}
-            sx={fieldSx} />
-    );
-
-    const Ff = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
-        <TextField label={label} type="number" size="small" fullWidth value={value}
-            onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-            slotProps={{ htmlInput: { min: 0, step: 0.5, style: { padding: '4px 8px', fontSize: '0.95rem' } } }}
-            sx={fieldSx} />
-    );
-
-    const S = ({ text }: { text: string }) => (
-        <Typography sx={{ fontSize: '0.85rem', color: th.textMuted, mb: 0.5, mt: 1 }}>{text}</Typography>
-    );
 
     // 下拉菜单样式
     const menuProps = {
@@ -165,7 +219,11 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
                         <F label="bankCnt" value={chipBankCnt} onChange={setChipBankCnt} />
                     </Stack>
                     <S text={i.poissonSparse} />
-                    <Ff label="λ_sparse" value={lambdaSparse} onChange={setLambdaSparse} />
+                    <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
+                        <Ff label="λ_sparse (均值)" value={lambdaSparse} onChange={setLambdaSparse} />
+                        <Ff label="disp φ" value={sparseDispersion} onChange={setSparseDispersion} />
+                    </Stack>
+                    <S text={i.poissonDispersion} />
                     <S text={i.rowColPct} />
                     <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
                         <Ff label="rowPct%" value={rowPct} onChange={setRowPct} />
@@ -176,7 +234,7 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
                     </Stack>
                     <Box sx={{ px: 0.5, py: 0.3, bgcolor: th.bgDark, mt: 0.5 }}>
                         <Typography sx={{ fontSize: '0.8rem', color: th.textMuted }}>
-                            {i.preview}: sparse≈{lambdaSparse}, row≈{Math.round(lambdaSparse * rowPct / 100)}, col≈{Math.round(lambdaSparse * colPct / 100)}
+                            {i.preview}: μ={lambdaSparse}, σ²={sparseDispersion > 0 ? (lambdaSparse + lambdaSparse * lambdaSparse * sparseDispersion).toFixed(1) : lambdaSparse.toFixed(1)}, row≈{Math.round(lambdaSparse * rowPct / 100)}, col≈{Math.round(lambdaSparse * colPct / 100)}
                         </Typography>
                     </Box>
                 </>

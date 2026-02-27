@@ -28,10 +28,11 @@ type SolveRequest struct {
 	BankCnt *int `json:"bankCnt,omitempty"` // bank模式=run次数, chip模式=每chip的bank数
 
 	// ─── Chip 模式参数 ───
-	ChipCnt      *int     `json:"chipCnt,omitempty"`      // chip 数量 (默认100)
-	LambdaSparse *float64 `json:"lambdaSparse,omitempty"` // 泊松λ: sparse fail 均值
-	RowPct       *float64 `json:"rowPct,omitempty"`       // row fail = sparse * rowPct / 100
-	ColPct       *float64 `json:"colPct,omitempty"`       // col fail = sparse * colPct / 100
+	ChipCnt          *int     `json:"chipCnt,omitempty"`          // chip 数量 (默认100)
+	LambdaSparse     *float64 `json:"lambdaSparse,omitempty"`     // 分布均值: sparse fail 均值 μ
+	SparseDispersion *float64 `json:"sparseDispersion,omitempty"` // overdispersion φ: Var=μ+μ²φ, φ=0 退化纯泊松
+	RowPct           *float64 `json:"rowPct,omitempty"`           // row fail = sparse * rowPct / 100
+	ColPct           *float64 `json:"colPct,omitempty"`           // col fail = sparse * colPct / 100
 
 	// ─── 通用参数 ───
 	Seed *uint32 `json:"seed,omitempty"`
@@ -127,6 +128,10 @@ func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawM
 	if req.LambdaSparse != nil {
 		lambdaSparse = *req.LambdaSparse
 	}
+	sparseDispersion := 0.0 // φ=0 → 纯泊松
+	if req.SparseDispersion != nil && *req.SparseDispersion >= 0 {
+		sparseDispersion = *req.SparseDispersion
+	}
 	rowPct := 10.0
 	if req.RowPct != nil {
 		rowPct = *req.RowPct
@@ -161,8 +166,8 @@ func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawM
 			return nil, fmt.Errorf("chip evaluation cancelled at chip %d/%d", i, chipCnt)
 		}
 
-		// 泊松采样 sparse
-		sparse := poissonSample(lambdaSparse, rng)
+		// 负二项 / 泊松 采样 sparse
+		sparse := negativeBinomialSample(lambdaSparse, sparseDispersion, rng)
 		rowfail := int(math.Round(float64(sparse) * rowPct / 100.0))
 		colfail := int(math.Round(float64(sparse) * colPct / 100.0))
 		chipSeed := uint32(rng.Int31())
@@ -230,9 +235,10 @@ func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawM
 		"bankCnt":  bankCnt,
 		"config":   json.RawMessage(firstConfig),
 		"chipParams": map[string]interface{}{
-			"lambdaSparse": lambdaSparse,
-			"rowPct":       rowPct,
-			"colPct":       colPct,
+			"lambdaSparse":     lambdaSparse,
+			"sparseDispersion": sparseDispersion,
+			"rowPct":           rowPct,
+			"colPct":           colPct,
 		},
 		"chips": chips,
 		"summary": map[string]interface{}{
@@ -271,8 +277,65 @@ func (r *Runner) runOnce(ctx context.Context, req *SolveRequest) (json.RawMessag
 	return json.RawMessage(raw), nil
 }
 
-// ─── 泊松采样 ───
+// ─── 负二项 / 泊松 采样 ───
+//
+// 参数:
+//
+//	mu  — 均值 (λ_sparse)
+//	phi — overdispersion φ, Var = μ + μ²φ
+//	      φ=0 退化为标准泊松; φ>0 方差更大(更发散)
+//
+// 实现: 负二项 = Gamma-Poisson 混合
+//
+//	r = 1/φ,  p = r/(r+μ)  →  NB(r, p)
+//	先从 Gamma(r, μ/r) 采样出 λ', 再泊松采样
+func negativeBinomialSample(mu, phi float64, rng *rand.Rand) int {
+	if mu <= 0 {
+		return 0
+	}
+	// phi ≈ 0: 纯泊松
+	if phi < 1e-9 {
+		return poissonSample(mu, rng)
+	}
+	// r = 1/phi (shape), scale = mu*phi (= mu/r)
+	r := 1.0 / phi
+	// Gamma 采样: shape=r, scale=mu*phi
+	lambdaPrime := gammaRand(r, mu*phi, rng)
+	if lambdaPrime <= 0 {
+		return 0
+	}
+	return poissonSample(lambdaPrime, rng)
+}
 
+// gammaRand 使用 Marsaglia-Tsang 方法采样 Gamma(shape, scale)
+func gammaRand(shape, scale float64, rng *rand.Rand) float64 {
+	if shape <= 0 || scale <= 0 {
+		return 0
+	}
+	if shape < 1.0 {
+		// Boost: Gamma(shape) = Gamma(shape+1) * U^(1/shape)
+		return gammaRand(shape+1, scale, rng) * math.Pow(rng.Float64(), 1.0/shape)
+	}
+	d := shape - 1.0/3.0
+	c := 1.0 / math.Sqrt(9.0*d)
+	for {
+		x := rng.NormFloat64()
+		v := 1.0 + c*x
+		if v <= 0 {
+			continue
+		}
+		v = v * v * v
+		u := rng.Float64()
+		if u < 1.0-0.0331*(x*x)*(x*x) {
+			return d * v * scale
+		}
+		if math.Log(u) < 0.5*x*x+d*(1.0-v+math.Log(v)) {
+			return d * v * scale
+		}
+	}
+}
+
+// poissonSample 标准泊松采样
 func poissonSample(lambda float64, rng *rand.Rand) int {
 	if lambda <= 0 {
 		return 0

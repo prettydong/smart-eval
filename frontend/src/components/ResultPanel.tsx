@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Box, Stack, Typography, LinearProgress, List, ListItemButton, ListItemText, Collapse,
 } from '@mui/material';
@@ -23,6 +23,7 @@ interface ResultPanelProps {
     selectedChip: number;
     selectedBank: number;
     onSelectChipBank: (chip: number, bank: number) => void;
+    scrollToChip?: number;  // 外部触发：展开并滚动到该 chip
 }
 
 export default function ResultPanel(props: ResultPanelProps) {
@@ -76,7 +77,7 @@ function BankPanel({ data, selectedRun, onSelectRun, th, i }: {
                 </List>
             </Box>
 
-            {run && run.feasible && (
+            {run && (
                 <Box sx={{ flexShrink: 0 }}><RunDetail run={run} label={`Run #${run.run}`} th={th} i={i} /></Box>
             )}
         </Box>
@@ -85,14 +86,40 @@ function BankPanel({ data, selectedRun, onSelectRun, th, i }: {
 
 // ─── Chip ───
 
-function ChipPanel({ data, selectedChip, selectedBank, onSelectChipBank, th, i }: {
+function ChipPanel({ data, selectedChip, selectedBank, onSelectChipBank, scrollToChip, th, i }: {
     data: ChipSolveResponse; selectedChip: number; selectedBank: number;
-    onSelectChipBank: (c: number, b: number) => void; th: AppTheme; i: I18nStrings;
+    onSelectChipBank: (c: number, b: number) => void;
+    scrollToChip?: number;
+    th: AppTheme; i: I18nStrings;
 } & Partial<ResultPanelProps>) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set([0]));
+    const chipRowRefs = useRef<Map<number, HTMLElement>>(new Map());
+    const scrollBoxRef = useRef<HTMLDivElement>(null);
+
     const toggle = (idx: number) => {
         setExpanded(prev => { const n = new Set(prev); if (n.has(idx)) n.delete(idx); else n.add(idx); return n; });
     };
+
+    // 外部触发：展开 chip 并 scroll 到其行
+    useEffect(() => {
+        if (scrollToChip == null) return;
+        // 展开该 chip，同时折叠其他所有
+        setExpanded(new Set([scrollToChip]));
+        // 等 DOM 更新后再滚动
+        requestAnimationFrame(() => {
+            const el = chipRowRefs.current.get(scrollToChip);
+            const box = scrollBoxRef.current;
+            if (el && box) {
+                const elTop = el.offsetTop - box.offsetTop;
+                box.scrollTo({ top: elTop - 8, behavior: 'smooth' });
+            }
+        });
+    }, [scrollToChip]);
+
+    const setChipRef = useCallback((chipId: number, el: HTMLElement | null) => {
+        if (el) chipRowRefs.current.set(chipId, el);
+        else chipRowRefs.current.delete(chipId);
+    }, []);
 
     const s = data.summary;
     const fr = s.feasibleRate * 100;
@@ -113,13 +140,13 @@ function ChipPanel({ data, selectedChip, selectedBank, onSelectChipBank, th, i }
                 <FB value={fr} th={th} />
             </Box>
 
-            <Box sx={{ flex: 1, minHeight: 0, ...hiddenScrollSx }}>
+            <Box ref={scrollBoxRef} sx={{ flex: 1, minHeight: 0, ...hiddenScrollSx }}>
                 <SH text={i.chipsHeader} th={th} />
                 {data.chips.map((chip) => {
                     const exp = expanded.has(chip.chip);
                     const isSel = selectedChip === chip.chip;
                     return (
-                        <Box key={chip.chip}>
+                        <Box key={chip.chip} ref={(el) => setChipRef(chip.chip, el as HTMLElement | null)}>
                             <Box onClick={() => toggle(chip.chip)} sx={{
                                 display: 'flex', alignItems: 'center', px: 1, py: 0.3, cursor: 'pointer',
                                 borderBottom: `1px solid ${th.border}`, bgcolor: isSel ? th.bgSelected : 'transparent',
@@ -152,7 +179,7 @@ function ChipPanel({ data, selectedChip, selectedBank, onSelectChipBank, th, i }
                 })}
             </Box>
 
-            {cBank && cBank.feasible && (
+            {cBank && (
                 <Box sx={{ flexShrink: 0 }}><RunDetail run={cBank} label={`${i.chip} #${selectedChip} / ${i.bank} #${selectedBank}`} th={th} i={i} /></Box>
             )}
         </Box>
@@ -193,14 +220,19 @@ function RunDetail({ run, label, th, i }: { run: RunResult; label: string; th: A
                 <Stack spacing={0.3}>
                     <SL th={th} label={i.seed} value={`${run.seed}`} color={th.purple} />
                     <SL th={th} label={i.totalFails} value={`${run.totalFails}`} color={th.pink} />
-                    <SL th={th} label={i.totalUsed} value={`${run.totalUsed}`} color={th.green} />
+                    {run.feasible ? (
+                        <SL th={th} label={i.totalUsed} value={`${run.totalUsed}`} color={th.green} />
+                    ) : (
+                        <SL th={th} label="status" value={run.solverStatus ?? i.infeasible} color={th.pink} />
+                    )}
                     <SL th={th} label={i.solvedBy} value={run.solvedBy} color={run.solvedBy === 'QuickSolve' ? th.green : th.orange} />
                     <SL th={th} label={i.greedyTime} value={`${(run.greedyTime * 1000).toFixed(3)}ms`} color={th.cyan} />
                     <SL th={th} label={i.mipTime} value={`${(run.mipTime * 1000).toFixed(3)}ms`} color={th.cyan} />
-                    {run.rowRepairs && Object.keys(run.rowRepairs).length > 0 && (
+                    <SL th={th} label="solve" value={`${(run.solveTime * 1000).toFixed(2)}ms`} color={th.cyan} />
+                    {run.feasible && run.rowRepairs && Object.keys(run.rowRepairs).length > 0 && (
                         <SL th={th} label={i.rowRepairs} value={`${Object.keys(run.rowRepairs).length}`} color={th.cyan} />
                     )}
-                    {run.colRepairs && (
+                    {run.feasible && run.colRepairs && (
                         <SL th={th} label={i.colRepairs} value={`${Object.keys(run.colRepairs).length}`} color={th.purple} />
                     )}
                 </Stack>

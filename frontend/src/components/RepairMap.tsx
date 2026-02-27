@@ -218,10 +218,11 @@ export default function RepairMap({
         yTitle.rotation = -Math.PI / 2;
         viewport.addChild(yTitle);
 
-        if (!runData.assignments || runData.assignments.length === 0) return;
+        const assignments = runData.assignments ?? [];
+        if (assignments.length === 0) return;
 
-        // ─── Row repair lines (span full col range) ───
-        if (rowVisible && runData.rowRepairs) {
+        // ─── Row repair lines — only when feasible ───
+        if (runData.feasible && rowVisible && runData.rowRepairs) {
             const rl = new Graphics();
             viewport.addChild(rl);
             for (const rowStr of Object.keys(runData.rowRepairs)) {
@@ -242,11 +243,11 @@ export default function RepairMap({
             }
         }
 
-        // ─── Col repair lines (scoped to big section) ───
-        if (colVisible) {
+        // ─── Col repair lines — only when feasible ───
+        if (runData.feasible && colVisible) {
             const colBigSections = new Map<number, Map<number, { color: number }>>();
 
-            for (const a of runData.assignments) {
+            for (const a of assignments) {
                 const grp = a.group;
                 if (grp.startsWith('Row') || grp === 'GlobalRow' || grp === 'RowRepair') continue;
 
@@ -311,24 +312,29 @@ export default function RepairMap({
             }
         }
 
-        // ─── Assignment dots ───
+        // ─── Assignment + raw fail dots ───
         const dots = new Graphics();
         viewport.addChild(dots);
-        for (const a of runData.assignments) {
+        for (const a of assignments) {
             const x = mapX(a.col, a.row);
             const y = mapY(a.col, a.row);
 
             const isRowGroup = a.group.startsWith('Row') || a.group === 'GlobalRow' || a.group === 'RowRepair';
             const isColGroup = a.group.startsWith('LCR') || a.group.startsWith('CCR');
+            const isRawFail = a.group === 'Fail';
 
-            // Skip assignment dots based on toggle
-            if (isRowGroup && !rowVisible) continue;
-            if (isColGroup && !colVisible) continue;
+            // Skip assignment dots based on toggle (raw fails always shown)
+            if (!isRawFail && isRowGroup && !rowVisible) continue;
+            if (!isRawFail && isColGroup && !colVisible) continue;
 
             let color = COLORS.fail;
             let size = 1.5;
 
-            if (isRowGroup) {
+            if (isRawFail) {
+                // Infeasible: raw fail point — use pink, slightly larger
+                color = COLORS.fail;
+                size = 1.8;
+            } else if (isRowGroup) {
                 color = COLORS.rowRepair;
                 size = 2;
             } else if (a.group.startsWith('LCR')) {
@@ -339,9 +345,8 @@ export default function RepairMap({
                 size = 1.8;
             }
 
-            // Dot (no glow)
             dots.circle(x, y, size);
-            dots.fill({ color, alpha: 0.9 });
+            dots.fill({ color, alpha: isRawFail ? 0.75 : 0.9 });
         }
 
         // ─── Coordinate label (fixed on stage, not viewport) ───
@@ -374,7 +379,7 @@ export default function RepairMap({
         // Build spatial index for click detection
         interface DotInfo { sx: number; sy: number; row: number; col: number; group: string }
         const dotIndex: DotInfo[] = [];
-        for (const a of runData.assignments) {
+        for (const a of assignments) {
             dotIndex.push({
                 sx: mapX(a.col, a.row),
                 sy: mapY(a.col, a.row),
@@ -567,7 +572,7 @@ export default function RepairMap({
     }, [maxRow, maxCol, config, pixiColors]);
 
     useEffect(() => {
-        if (run && run.feasible) {
+        if (run) {
             drawMap(run, showRow, showCol, swapped, pixiColors);
         }
         return () => {
@@ -580,13 +585,12 @@ export default function RepairMap({
         };
     }, [run, drawMap, showRow, showCol, swapped, pixiColors]);
 
-    // Empty state
-    if (!run || !run.feasible) {
+    if (!run) {
         return (
             <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: currentTheme.bg }}>
                 <Stack alignItems="center" spacing={0.5}>
                     <Typography sx={{ fontSize: '0.95rem', color: currentTheme.textMuted }}>
-                        {run && !run.feasible ? i.infeasibleNoViz : i.awaitingSolve}
+                        {i.awaitingSolve}
                     </Typography>
                 </Stack>
             </Box>

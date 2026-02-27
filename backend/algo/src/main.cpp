@@ -204,7 +204,18 @@ static std::string solutionToJson(const RepairSolution &sol,
   } else {
     os << ",\n";
     os << "      \"solverStatus\": \"" << escapeJson(sol.solver_status)
-       << "\"\n";
+       << "\",\n";
+    // 不可解时也输出原始 fail 点，让前端能显示 fail 分布
+    os << "      \"assignments\": [\n";
+    bool firstA = true;
+    for (auto &f : fails) {
+      if (!firstA)
+        os << ",\n";
+      os << "        {\"row\": " << f.row << ", \"col\": " << f.col
+         << ", \"group\": \"Fail\"}";
+      firstA = false;
+    }
+    os << "\n      ]\n";
   }
 
   os << "    }";

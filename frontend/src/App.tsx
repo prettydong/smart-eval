@@ -8,6 +8,7 @@ import type { SolveRequest, SolveResponse, RunResult } from './api/solver';
 import { AppThemeProvider, useAppTheme } from './themes';
 import { I18nProvider, useI18n } from './i18n';
 import MemoryRepairSvg from './components/MemoryRepairSvg';
+import WaferMap from './components/WaferMap';
 
 function isChipResp(r: SolveResponse): r is import('./api/solver').ChipSolveResponse {
   return r.evalMode === 'chip';
@@ -23,6 +24,8 @@ function AppInner() {
   const [selectedRun, setSelectedRun] = useState(0);
   const [selectedChip, setSelectedChip] = useState(0);
   const [selectedBank, setSelectedBank] = useState(0);
+  const [activeTab, setActiveTab] = useState<'repair' | 'wafer'>('repair');
+  const [scrollToChip, setScrollToChip] = useState<number | undefined>(undefined);
 
   const handleSolve = useCallback(async (req: SolveRequest) => {
     setLoading(true);
@@ -33,6 +36,8 @@ function AppInner() {
       setSelectedRun(0);
       setSelectedChip(0);
       setSelectedBank(0);
+      // chip 模式默认展示 wafer tab
+      setActiveTab(data.evalMode === 'chip' ? 'wafer' : 'repair');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setError(msg);
@@ -44,6 +49,14 @@ function AppInner() {
   const handleSelectChipBank = useCallback((chip: number, bank: number) => {
     setSelectedChip(chip);
     setSelectedBank(bank);
+  }, []);
+
+  // wafer 上点击 chip → 左边切换到 repair tab 并展开对应 chip
+  const handleWaferChipClick = useCallback((chipIdx: number) => {
+    setSelectedChip(chipIdx);
+    setSelectedBank(0);
+    setScrollToChip(chipIdx);      // 触发右侧 tree scroll
+    setActiveTab('repair');        // 切换到 repair map 显示 bank 0
   }, []);
 
   const cycleTheme = () => {
@@ -117,13 +130,32 @@ function AppInner() {
 
         {/* Center */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* ─── Tab Bar ─── */}
           <Box sx={{ display: 'flex', bgcolor: th.bgDark, borderBottom: `1px solid ${th.border}`, minHeight: 28 }}>
-            <Box sx={{
-              px: 1.5, py: 0.5, bgcolor: th.bg,
-              borderRight: `1px solid ${th.border}`, borderTop: `1px solid ${th.green}`,
+            {/* Tab 1: wafer_map — chip 模式才显示，如果是 chip 模式则优先 */}
+            {result && isChipResp(result) && (
+              <Box onClick={() => setActiveTab('wafer')} sx={{
+                px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
+                bgcolor: activeTab === 'wafer' ? th.bg : 'transparent',
+                borderRight: `1px solid ${th.border}`,
+                borderTop: activeTab === 'wafer' ? `1px solid ${th.orange}` : '1px solid transparent',
+                display: 'flex', alignItems: 'center', gap: 0.5,
+              }}>
+                <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'wafer' ? th.text : th.textMuted }}>wafer_map.canvas</Typography>
+                <Chip label={`${result.chips.length} chips`} size="small" sx={{
+                  bgcolor: `${th.orange}22`, color: th.orange, height: 16, fontSize: '0.8rem',
+                }} />
+              </Box>
+            )}
+            {/* Tab 2: repair_map */}
+            <Box onClick={() => setActiveTab('repair')} sx={{
+              px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
+              bgcolor: activeTab === 'repair' ? th.bg : 'transparent',
+              borderRight: `1px solid ${th.border}`,
+              borderTop: activeTab === 'repair' ? `1px solid ${th.green}` : '1px solid transparent',
               display: 'flex', alignItems: 'center', gap: 0.5,
             }}>
-              <Typography sx={{ fontSize: '0.9rem', color: th.text }}>{i.repairMapTab}</Typography>
+              <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'repair' ? th.text : th.textMuted }}>{i.repairMapTab}</Typography>
               {currentRun && (
                 <Chip label={currentRun.feasible ? i.feasible : i.infeasible} size="small" sx={{
                   bgcolor: currentRun.feasible ? `${th.green}22` : `${th.pink}22`,
@@ -133,26 +165,44 @@ function AppInner() {
             </Box>
           </Box>
 
+          {/* ─── Content Area: 常驻挂载，CSS 切换显隐，避免 tab 切换重新 mount 导致重算 ─── */}
           <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-            {currentRun ? (
-              <RepairMap run={currentRun} maxRow={configObj?.maxrow ?? 16384} maxCol={configObj?.maxcol ?? 1024} config={configObj} />
-            ) : (
-              <Box sx={{
-                height: '100%', display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', bgcolor: th.bg, gap: 2,
-              }}>
-                <MemoryRepairSvg />
-                <Typography sx={{ fontSize: '1.1rem', color: th.textSubtle, fontWeight: 500 }}>
-                  {i.landingTitle}
-                </Typography>
-                <Typography sx={{ fontSize: '0.9rem', color: th.textMuted, maxWidth: 400, textAlign: 'center' }}>
-                  {i.landingDesc}
-                </Typography>
-              </Box>
-            )}
+            {/* Wafer panel: always mounted, hidden via visibility to preserve canvas size */}
+            <Box sx={{
+              visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'visible' : 'hidden',
+              pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'auto' : 'none',
+              width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
+            }}>
+              {result && isChipResp(result) && (
+                <WaferMap data={result} visible={activeTab === 'wafer'} onChipClick={handleWaferChipClick} />
+              )}
+            </Box>
+            {/* Repair / landing panel */}
+            <Box sx={{
+              visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'hidden' : 'visible',
+              pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'none' : 'auto',
+              width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
+            }}>
+              {currentRun ? (
+                <RepairMap run={currentRun} maxRow={configObj?.maxrow ?? 16384} maxCol={configObj?.maxcol ?? 1024} config={configObj} />
+              ) : (
+                <Box sx={{
+                  height: '100%', display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', bgcolor: th.bg, gap: 2,
+                }}>
+                  <MemoryRepairSvg />
+                  <Typography sx={{ fontSize: '1.1rem', color: th.textSubtle, fontWeight: 500 }}>
+                    {i.landingTitle}
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.9rem', color: th.textMuted, maxWidth: 400, textAlign: 'center' }}>
+                    {i.landingDesc}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
           </Box>
 
-          {currentRun && currentRun.feasible && (
+          {currentRun && currentRun.feasible && activeTab === 'repair' && (
             <Box sx={{ px: 1, py: 0.3, bgcolor: th.bgDark, borderTop: `1px solid ${th.border}`, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: '0.85rem', color: th.textMuted }}>{statusLabel}</Typography>
               <Typography sx={{ fontSize: '0.85rem', color: th.cyan }}>{currentRun.totalFails} {i.fails}</Typography>
@@ -173,6 +223,7 @@ function AppInner() {
           <ResultPanel
             data={result} selectedRun={selectedRun} onSelectRun={setSelectedRun}
             selectedChip={selectedChip} selectedBank={selectedBank} onSelectChipBank={handleSelectChipBank}
+            scrollToChip={scrollToChip}
           />
         </Box>
       </Box>

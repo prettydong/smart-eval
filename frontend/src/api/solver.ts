@@ -21,6 +21,7 @@ export interface SolveRequest {
     // Chip 模式
     chipCnt?: number;
     lambdaSparse?: number;
+    sparseDispersion?: number;   // overdispersion φ, Var=μ+μ²φ; 0=纯泊松
     rowPct?: number;
     colPct?: number;
 
@@ -97,6 +98,7 @@ export interface ChipSolveResponse {
     config: Record<string, number>;
     chipParams: {
         lambdaSparse: number;
+        sparseDispersion: number;
         rowPct: number;
         colPct: number;
     };
