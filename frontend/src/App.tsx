@@ -46,9 +46,11 @@ function AppInner() {
     }
   }, []);
 
+
   const handleSelectChipBank = useCallback((chip: number, bank: number) => {
     setSelectedChip(chip);
     setSelectedBank(bank);
+    setActiveTab('repair');   // 点击 bank 时自动跳到 fail canvas
   }, []);
 
   // wafer 上点击 chip → 左边切换到 repair tab 并展开对应 chip
