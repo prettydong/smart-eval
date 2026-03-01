@@ -28,7 +28,7 @@ type SolveRequest struct {
 	BankCnt *int `json:"bankCnt,omitempty"` // bank模式=run次数, chip模式=每chip的bank数
 
 	// ─── Chip 模式参数 ───
-	ChipCnt          *int     `json:"chipCnt,omitempty"`          // chip 数量 (默认100)
+	ChipCnt          *int     `json:"chipCnt,omitempty" binding:"omitempty,gte=1"` // chip 数量 (默认100, 最小1)
 	LambdaSparse     *float64 `json:"lambdaSparse,omitempty"`     // 分布均值: sparse fail 均值 μ
 	SparseDispersion *float64 `json:"sparseDispersion,omitempty"` // overdispersion φ: Var=μ+μ²φ, φ=0 退化纯泊松
 	RowPct           *float64 `json:"rowPct,omitempty"`           // row fail = sparse * rowPct / 100
