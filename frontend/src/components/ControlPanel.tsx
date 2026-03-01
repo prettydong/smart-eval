@@ -134,7 +134,7 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
         if (evalMode === 'bank') {
             req.sparse = sparse; req.rowfail = rowfail; req.colfail = colfail; req.bankCnt = bankCnt;
         } else {
-            req.chipCnt = chipCnt; req.bankCnt = chipBankCnt;
+            req.chipCnt = Math.max(1, chipCnt); req.bankCnt = chipBankCnt;
             req.lambdaSparse = lambdaSparse;
             req.sparseDispersion = sparseDispersion;
             req.rowPct = rowPct; req.colPct = colPct;
