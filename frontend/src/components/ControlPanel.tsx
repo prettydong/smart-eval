@@ -4,6 +4,7 @@ import {
     TextField, Typography, Stack, CircularProgress, Collapse,
 } from '@mui/material';
 import type { SolveRequest } from '../api/solver';
+import { listConfigs, type ProductConfig } from '../api/config';
 import { useAppTheme } from '../themes';
 import { useI18n } from '../i18n';
 
@@ -24,7 +25,7 @@ const getFieldSx = (th: any) => ({
 });
 
 // 整数输入框（修复前导零 bug）
-const F = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => {
+const F = ({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) => {
     const { theme: th } = useAppTheme();
     const [text, setText] = useState(String(value));
 
@@ -33,6 +34,7 @@ const F = ({ label, value, onChange }: { label: string; value: number; onChange:
 
     return (
         <TextField label={label} type="text" size="small" fullWidth
+            disabled={disabled}
             value={text}
             onChange={(e) => {
                 const raw = e.target.value;
@@ -94,6 +96,14 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
     const { theme: th } = useAppTheme();
     const { t: i } = useI18n();
 
+    // ─── 产品配置选择 ───
+    const [configs, setConfigs] = useState<ProductConfig[]>([]);
+    const [selectedConfig, setSelectedConfig] = useState<string>('__temp__');
+
+    useEffect(() => {
+        listConfigs().then(setConfigs).catch(() => { /* ignore */ });
+    }, []);
+
     const [mode, setMode] = useState<'lcr' | 'ccr'>('lcr');
     const [evalMode, setEvalMode] = useState<'bank' | 'chip'>('bank');
 
@@ -124,7 +134,33 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
     const [ccrCap, setCcrCap] = useState(2);
 
     const [seed, setSeed] = useState('');
-    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(true);
+
+    const isTemp = selectedConfig === '__temp__';
+
+    // 选择产品配置时自动填充参数
+    const handleConfigChange = (configName: string) => {
+        setSelectedConfig(configName);
+        if (configName === '__temp__') return;
+
+        const cfg = configs.find(c => c.name === configName);
+        if (!cfg) return;
+
+        // 填充产品配置参数
+        setMode(cfg.mode as 'lcr' | 'ccr');
+        setMaxrow(cfg.maxrow);
+        setMaxcol(cfg.maxcol);
+        setRowcap(cfg.rowcap);
+        setSectioncnt(cfg.sectioncnt);
+        setColseg(cfg.colseg);
+        setSectionGroupSize(cfg.sectionGroupSize);
+        setSubsectionSize(cfg.subsectionSize);
+        setSubsectionsPerGroup(cfg.subsectionsPerGroup);
+        setCpsPerRegion(cfg.cpsPerRegion);
+        setLcrCap(cfg.lcrCap);
+        setCcrGroupsPerSection(cfg.ccrGroupsPerSection);
+        setCcrCap(cfg.ccrCap);
+    };
 
     const handleSubmit = () => {
         const req: SolveRequest = {
@@ -175,15 +211,33 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
 
     return (
         <Box sx={{ p: 1 }}>
-            <S text={i.modeLabel} />
+            {/* ─── 产品配置选择 ─── */}
+            <S text={i.productLabel} />
             <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                <InputLabel sx={labelSx}>mode</InputLabel>
-                <Select value={mode} label="mode" onChange={(e) => setMode(e.target.value as 'lcr' | 'ccr')}
+                <InputLabel sx={labelSx}>product</InputLabel>
+                <Select value={selectedConfig} label="product"
+                    onChange={(e) => handleConfigChange(e.target.value)}
                     sx={selectSx} MenuProps={menuProps}>
-                    <MenuItem value="lcr">lcr — Local Column</MenuItem>
-                    <MenuItem value="ccr">ccr — Common Column</MenuItem>
+                    <MenuItem value="__temp__">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Box sx={{ width: 6, height: 6, bgcolor: th.orange, borderRadius: '50%' }} />
+                            {i.tempConfig}
+                        </Box>
+                    </MenuItem>
+                    {configs.map(c => (
+                        <MenuItem key={c.name} value={c.name}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Box sx={{ width: 6, height: 6, bgcolor: th.green, borderRadius: '50%' }} />
+                                {c.name}
+                                <Typography component="span" sx={{ fontSize: '0.8rem', color: th.textMuted, ml: 0.5 }}>
+                                    ({c.mode})
+                                </Typography>
+                            </Box>
+                        </MenuItem>
+                    ))}
                 </Select>
             </FormControl>
+
 
             <S text={i.evalLabel} />
             <FormControl fullWidth size="small" sx={{ mb: 1 }}>
@@ -246,43 +300,54 @@ export default function ControlPanel({ onSolve, loading }: ControlPanelProps) {
                     '&:hover': { bgcolor: th.bgHover }, px: 0.5, py: 0.2, userSelect: 'none'
                 }}>
                 <Typography sx={{ fontSize: '0.85rem', color: th.orange }}>
-                    {showAdvanced ? '▾' : '▸'} {i.advancedParams}
+                    {showAdvanced ? '▾' : '▸'} {i.productArch}
                 </Typography>
             </Box>
 
             <Collapse in={showAdvanced}>
+                <S text={i.modeLabel} />
+                <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                    <InputLabel sx={labelSx}>mode</InputLabel>
+                    <Select value={mode} label="mode"
+                        disabled={!isTemp}
+                        onChange={(e) => setMode(e.target.value as 'lcr' | 'ccr')}
+                        sx={selectSx} MenuProps={menuProps}>
+                        <MenuItem value="lcr">lcr — Local Column</MenuItem>
+                        <MenuItem value="ccr">ccr — Common Column</MenuItem>
+                    </Select>
+                </FormControl>
                 <S text={i.addressSpace} />
                 <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                    <F label="maxrow" value={maxrow} onChange={setMaxrow} />
-                    <F label="maxcol" value={maxcol} onChange={setMaxcol} />
+                    <F label="maxrow" value={maxrow} onChange={setMaxrow} disabled={!isTemp} />
+                    <F label="maxcol" value={maxcol} onChange={setMaxcol} disabled={!isTemp} />
                 </Stack>
                 <S text={i.solverParams} />
                 <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                    <F label="rowcap" value={rowcap} onChange={setRowcap} />
-                    <F label="sectioncnt" value={sectioncnt} onChange={setSectioncnt} />
+                    <F label="rowcap" value={rowcap} onChange={setRowcap} disabled={!isTemp} />
+                    <F label="sectioncnt" value={sectioncnt} onChange={setSectioncnt} disabled={!isTemp} />
                 </Stack>
                 <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                    <F label="colseg" value={colseg} onChange={setColseg} />
-                    <F label="secGrpSize" value={sectionGroupSize} onChange={setSectionGroupSize} />
+                    <F label="colseg" value={colseg} onChange={setColseg} disabled={!isTemp} />
+                    <F label="secGrpSize" value={sectionGroupSize} onChange={setSectionGroupSize} disabled={!isTemp} />
                 </Stack>
                 <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                    <F label="subSecSize" value={subsectionSize} onChange={setSubsectionSize} />
-                    <F label="subPerGrp" value={subsectionsPerGroup} onChange={setSubsectionsPerGroup} />
+                    <F label="subSecSize" value={subsectionSize} onChange={setSubsectionSize} disabled={!isTemp} />
+                    <F label="subPerGrp" value={subsectionsPerGroup} onChange={setSubsectionsPerGroup} disabled={!isTemp} />
                 </Stack>
                 {mode === 'lcr' ? (
                     <>
                         <S text={i.lcrParams} />
                         <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                            <F label="cpsPerRegion" value={cpsPerRegion} onChange={setCpsPerRegion} />
-                            <F label="lcrCap" value={lcrCap} onChange={setLcrCap} />
+                            <F label="cpsPerRegion" value={cpsPerRegion} onChange={setCpsPerRegion} disabled={!isTemp} />
+                            <F label="lcrCap" value={lcrCap} onChange={setLcrCap} disabled={!isTemp} />
                         </Stack>
                     </>
                 ) : (
                     <>
                         <S text={i.ccrParams} />
                         <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                            <F label="ccrGrpPerSec" value={ccrGroupsPerSection} onChange={setCcrGroupsPerSection} />
-                            <F label="ccrCap" value={ccrCap} onChange={setCcrCap} />
+                            <F label="ccrGrpPerSec" value={ccrGroupsPerSection} onChange={setCcrGroupsPerSection} disabled={!isTemp} />
+                            <F label="ccrCap" value={ccrCap} onChange={setCcrCap} disabled={!isTemp} />
                         </Stack>
                     </>
                 )}

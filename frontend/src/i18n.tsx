@@ -26,7 +26,7 @@ export interface I18nStrings {
     poissonDispersion: string;
     rowColPct: string;
     preview: string;
-    advancedParams: string;
+    productArch: string;
     addressSpace: string;
     solverParams: string;
     lcrParams: string;
@@ -34,6 +34,8 @@ export interface I18nStrings {
     solving: string;
     evalChips: (n: number) => string;
     solve: string;
+    productLabel: string;
+    tempConfig: string;
 
     // ResultPanel
     noResults: string;
@@ -94,7 +96,7 @@ const EN: I18nStrings = {
     poissonDispersion: '// dispersion (φ=0: Poisson, φ>0: overdispersed)',
     rowColPct: '// row/col as % of sparse',
     preview: '// preview',
-    advancedParams: '// advanced params',
+    productArch: '// product arch',
     addressSpace: '// address space',
     solverParams: '// solver params',
     lcrParams: '// lcr params',
@@ -102,6 +104,8 @@ const EN: I18nStrings = {
     solving: 'solving...',
     evalChips: (n) => `▶ eval ${n} chips`,
     solve: '▶ solve()',
+    productLabel: '// product config',
+    tempConfig: 'Temp (manual)',
 
     noResults: '// no results yet',
     noResultsHint: '// configure params and click solve()',
@@ -158,7 +162,7 @@ const ZH: I18nStrings = {
     poissonDispersion: '// 发散参数 (φ=0:泊松, φ>0:负二项/发散加大)',
     rowColPct: '// row/col 占 sparse 百分比',
     preview: '// 预览',
-    advancedParams: '// 高级参数',
+    productArch: '// 产品架构',
     addressSpace: '// 地址空间',
     solverParams: '// 求解器参数',
     lcrParams: '// LCR 参数',
@@ -166,6 +170,8 @@ const ZH: I18nStrings = {
     solving: '求解中...',
     evalChips: (n) => `▶ 评估 ${n} 芯片`,
     solve: '▶ 求解()',
+    productLabel: '// 产品配置',
+    tempConfig: '临时配置 (手动)',
 
     noResults: '// 暂无结果',
     noResultsHint: '// 配置参数后点击求解',

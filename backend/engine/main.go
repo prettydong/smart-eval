@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"cxmt-ra-smart-eval/engine/config"
 	"cxmt-ra-smart-eval/engine/handler"
 	"cxmt-ra-smart-eval/engine/solver"
 
@@ -32,6 +33,18 @@ func main() {
 
 	runner := solver.NewRunner(solverPath)
 
+	// ─── 初始化产品配置存储 ───
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		exeDir, _ := os.Executable()
+		dataDir = filepath.Join(filepath.Dir(exeDir), "data")
+	}
+	cfgStore, err := config.NewStore(dataDir)
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize config store: %v", err)
+	}
+	log.Printf("📂 Config store: %s", dataDir)
+
 	// ─── 配置 Gin ───
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -45,7 +58,7 @@ func main() {
 	// ─── CORS 配置（允许前端跨域调用）───
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: false,
@@ -55,9 +68,16 @@ func main() {
 	// ─── API 路由 ───
 	api := r.Group("/api/v1")
 	{
-		h := handler.NewSolverHandler(runner)
-		api.POST("/solve", h.Solve)
-		api.GET("/health", h.Health)
+		sh := handler.NewSolverHandler(runner)
+		api.POST("/solve", sh.Solve)
+		api.GET("/health", sh.Health)
+
+		// 产品配置 CRUD
+		ch := handler.NewConfigHandler(cfgStore)
+		api.GET("/configs", ch.ListConfigs)
+		api.GET("/configs/:name", ch.GetConfig)
+		api.PUT("/configs", ch.PutConfig)
+		api.DELETE("/configs/:name", ch.DeleteConfig)
 	}
 
 	// ─── 前端静态文件服务 ───
@@ -102,8 +122,10 @@ func main() {
 	log.Printf("📍 Solver binary: %s", solverPath)
 	log.Printf("⚡ Parallel workers: %d (CPU cores: %d)", runtime.NumCPU()/2, runtime.NumCPU())
 	log.Printf("📡 Endpoints:")
-	log.Printf("   POST /api/v1/solve   - Run repair solver")
-	log.Printf("   GET  /api/v1/health  - Health check")
+	log.Printf("   POST /api/v1/solve     - Run repair solver")
+	log.Printf("   GET  /api/v1/health    - Health check")
+	log.Printf("   GET  /api/v1/configs   - List product configs")
+	log.Printf("   PUT  /api/v1/configs   - Create/update config")
 	log.Printf("   GET  /               - Frontend UI")
 
 	if err := r.Run(addr); err != nil {
