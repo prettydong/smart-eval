@@ -8,7 +8,9 @@ import (
 	"math"
 	"math/rand"
 	"os/exec"
+	"runtime"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -65,45 +67,155 @@ type SolveRequest struct {
 
 type Runner struct {
 	binaryPath string
+	maxWorkers int // 最大并行子进程数
 }
 
 func NewRunner(binaryPath string) *Runner {
-	return &Runner{binaryPath: binaryPath}
+	maxWorkers := runtime.NumCPU() / 2
+	if maxWorkers < 1 {
+		maxWorkers = 1
+	}
+	return &Runner{
+		binaryPath: binaryPath,
+		maxWorkers: maxWorkers,
+	}
 }
 
-// Run 执行一次 C++ solver (bank 模式)
+// Run 执行 C++ solver (bank 模式) —— 并行拆分
 func (r *Runner) Run(ctx context.Context, req *SolveRequest) (json.RawMessage, error) {
-	args := buildArgs(req)
+	bankCnt := 1
+	if req.BankCnt != nil && *req.BankCnt > 0 {
+		bankCnt = *req.BankCnt
+	}
 
 	timeout := 300 * time.Second
 	if req.Timeout != nil && *req.Timeout > 0 {
 		timeout = time.Duration(*req.Timeout) * time.Second
 	}
-
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, r.binaryPath, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("solver timed out after %v", timeout)
+	// 如果 bankCnt <= 1 或只有 1 个 worker，不拆分，直接调用
+	if bankCnt <= 1 || r.maxWorkers <= 1 {
+		args := buildArgs(req)
+		return r.execSolver(ctx, args)
 	}
+
+	// ─── 并行拆分：把 bankCnt 拆成多个子任务 ───
+	var baseSeed uint32
+	if req.Seed != nil {
+		baseSeed = *req.Seed
+	} else {
+		baseSeed = uint32(time.Now().UnixNano() & 0xFFFFFFFF)
+	}
+
+	// 将 bankCnt 均匀分配到最多 maxWorkers 个子任务
+	numWorkers := r.maxWorkers
+	if numWorkers > bankCnt {
+		numWorkers = bankCnt
+	}
+
+	// 计算每个 worker 的 bank 数量
+	chunks := make([]int, numWorkers)
+	base := bankCnt / numWorkers
+	remainder := bankCnt % numWorkers
+	for i := 0; i < numWorkers; i++ {
+		chunks[i] = base
+		if i < remainder {
+			chunks[i]++
+		}
+	}
+
+	type workerResult struct {
+		idx  int
+		resp CppResponse
+		err  error
+	}
+
+	results := make(chan workerResult, numWorkers)
+	sem := make(chan struct{}, numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		sem <- struct{}{}
+		go func(workerIdx int) {
+			defer func() { <-sem }()
+
+			// 为每个 worker 计算独立的 seed
+			workerSeed := baseSeed + uint32(workerIdx)*10000
+			workerBankCnt := chunks[workerIdx]
+
+			// 复制请求
+			oneReq := *req
+			oneReq.Seed = &workerSeed
+			oneReq.BankCnt = &workerBankCnt
+
+			args := buildArgs(&oneReq)
+			raw, err := r.execSolver(ctx, args)
+			if err != nil {
+				results <- workerResult{idx: workerIdx, err: err}
+				return
+			}
+
+			var cppResp CppResponse
+			if err := json.Unmarshal(raw, &cppResp); err != nil {
+				results <- workerResult{idx: workerIdx, err: fmt.Errorf("worker %d: invalid JSON: %v", workerIdx, err)}
+				return
+			}
+
+			results <- workerResult{idx: workerIdx, resp: cppResp}
+		}(i)
+	}
+
+	// 收集结果
+	allResults := make([]workerResult, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		wr := <-results
+		if wr.err != nil {
+			return nil, fmt.Errorf("parallel bank worker %d failed: %v", wr.idx, wr.err)
+		}
+		allResults[wr.idx] = wr
+	}
+
+	// 合并结果：按 worker 顺序拼接所有 runs, 重新编号
+	var mergedRuns []json.RawMessage
+	var firstConfig json.RawMessage
+	runOffset := 0
+	for _, wr := range allResults {
+		if firstConfig == nil && wr.resp.Config != nil {
+			firstConfig = wr.resp.Config
+		}
+		for _, bankRaw := range wr.resp.Runs {
+			// 更新 run 编号
+			var bankObj map[string]interface{}
+			if err := json.Unmarshal(bankRaw, &bankObj); err == nil {
+				bankObj["run"] = runOffset
+				runOffset++
+				if rewritten, err := json.Marshal(bankObj); err == nil {
+					mergedRuns = append(mergedRuns, json.RawMessage(rewritten))
+					continue
+				}
+			}
+			mergedRuns = append(mergedRuns, bankRaw)
+			runOffset++
+		}
+	}
+
+	// 构建合并后的响应
+	merged := map[string]interface{}{
+		"mode":     req.Mode,
+		"baseSeed": baseSeed,
+		"runcnt":   len(mergedRuns),
+		"config":   json.RawMessage(firstConfig),
+		"runs":     mergedRuns,
+	}
+	result, err := json.Marshal(merged)
 	if err != nil {
-		return nil, fmt.Errorf("solver failed: %v\nstderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("marshal merged result error: %v", err)
 	}
-
-	raw := stdout.Bytes()
-	if !json.Valid(raw) {
-		return nil, fmt.Errorf("invalid JSON: %s\nstderr: %s", string(raw), stderr.String())
-	}
-	return json.RawMessage(raw), nil
+	return json.RawMessage(result), nil
 }
 
-// ─── Chip Level 模式 ───
+// ─── Chip Level 模式（并行版）───
 
 type CppResponse struct {
 	Mode     string            `json:"mode"`
@@ -114,7 +226,7 @@ type CppResponse struct {
 }
 
 // RunChipLevel: 每个 chip 泊松采样 sparse, 按百分比算 row/col, 跑 bankCnt 个 bank
-// chip feasible = 所有 bank 都 feasible
+// 使用 goroutine 并行处理多个 chip，最多 maxWorkers 个并发子进程
 func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawMessage, error) {
 	chipCnt := 100
 	if req.ChipCnt != nil && *req.ChipCnt > 0 {
@@ -156,70 +268,121 @@ func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawM
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// 预先为每个 chip 生成采样参数（需在单线程中使用 rng）
+	type chipInput struct {
+		idx      int
+		sparse   int
+		rowfail  int
+		colfail  int
+		chipSeed uint32
+	}
+	inputs := make([]chipInput, chipCnt)
+	for i := 0; i < chipCnt; i++ {
+		sparse := negativeBinomialSample(lambdaSparse, sparseDispersion, rng)
+		rowfail := int(math.Round(float64(sparse) * rowPct / 100.0))
+		colfail := int(math.Round(float64(sparse) * colPct / 100.0))
+		chipSeed := uint32(rng.Int31())
+		inputs[i] = chipInput{idx: i, sparse: sparse, rowfail: rowfail, colfail: colfail, chipSeed: chipSeed}
+	}
+
+	// 并行执行
+	type chipResult struct {
+		idx          int
+		chip         map[string]interface{}
+		config       json.RawMessage
+		chipFeasible bool
+		sparse       int
+		err          error
+	}
+
+	results := make([]chipResult, chipCnt)
+	sem := make(chan struct{}, r.maxWorkers) // 信号量限制并发
+	var wg sync.WaitGroup
+
+	for i := 0; i < chipCnt; i++ {
+		wg.Add(1)
+		go func(input chipInput) {
+			defer wg.Done()
+
+			sem <- struct{}{}        // 获取信号量
+			defer func() { <-sem }() // 释放信号量
+
+			if ctx.Err() != nil {
+				results[input.idx] = chipResult{idx: input.idx, err: fmt.Errorf("cancelled")}
+				return
+			}
+
+			// 构建请求
+			oneReq := *req
+			oneReq.Sparse = input.sparse
+			oneReq.RowFail = input.rowfail
+			oneReq.ColFail = input.colfail
+			runcntVal := bankCnt
+			oneReq.BankCnt = &runcntVal
+			oneReq.Seed = &input.chipSeed
+
+			rawResult, err := r.runOnce(ctx, &oneReq)
+			if err != nil {
+				results[input.idx] = chipResult{idx: input.idx, err: fmt.Errorf("chip %d failed: %v", input.idx, err)}
+				return
+			}
+
+			var cppResp CppResponse
+			if err := json.Unmarshal(rawResult, &cppResp); err != nil {
+				results[input.idx] = chipResult{idx: input.idx, err: fmt.Errorf("chip %d: invalid response: %v", input.idx, err)}
+				return
+			}
+
+			// 判断 chip 可行性
+			chipFeasible := true
+			for _, bankRaw := range cppResp.Runs {
+				var bankObj map[string]interface{}
+				if err := json.Unmarshal(bankRaw, &bankObj); err == nil {
+					if f, ok := bankObj["feasible"].(bool); ok && !f {
+						chipFeasible = false
+					}
+				}
+			}
+
+			chip := map[string]interface{}{
+				"chip":           input.idx,
+				"sampledSparse":  input.sparse,
+				"sampledRowFail": input.rowfail,
+				"sampledColFail": input.colfail,
+				"chipFeasible":   chipFeasible,
+				"banks":          cppResp.Runs,
+			}
+
+			results[input.idx] = chipResult{
+				idx:          input.idx,
+				chip:         chip,
+				config:       cppResp.Config,
+				chipFeasible: chipFeasible,
+				sparse:       input.sparse,
+			}
+		}(inputs[i])
+	}
+
+	wg.Wait()
+
+	// 汇总结果（按 chip 顺序）
 	var chips []interface{}
 	var firstConfig json.RawMessage
 	feasibleChips := 0
 	totalSparse := 0
 
-	for i := 0; i < chipCnt; i++ {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("chip evaluation cancelled at chip %d/%d", i, chipCnt)
+	for _, cr := range results {
+		if cr.err != nil {
+			return nil, cr.err
 		}
-
-		// 负二项 / 泊松 采样 sparse
-		sparse := negativeBinomialSample(lambdaSparse, sparseDispersion, rng)
-		rowfail := int(math.Round(float64(sparse) * rowPct / 100.0))
-		colfail := int(math.Round(float64(sparse) * colPct / 100.0))
-		chipSeed := uint32(rng.Int31())
-		totalSparse += sparse
-
-		// 构建请求: bankCnt 个 bank
-		oneReq := *req
-		oneReq.Sparse = sparse
-		oneReq.RowFail = rowfail
-		oneReq.ColFail = colfail
-		runcntVal := bankCnt
-		oneReq.BankCnt = &runcntVal
-		oneReq.Seed = &chipSeed
-
-		rawResult, err := r.runOnce(ctx, &oneReq)
-		if err != nil {
-			return nil, fmt.Errorf("chip %d failed: %v", i, err)
+		if firstConfig == nil && cr.config != nil {
+			firstConfig = cr.config
 		}
-
-		var cppResp CppResponse
-		if err := json.Unmarshal(rawResult, &cppResp); err != nil {
-			return nil, fmt.Errorf("chip %d: invalid response: %v", i, err)
-		}
-
-		if firstConfig == nil && cppResp.Config != nil {
-			firstConfig = cppResp.Config
-		}
-
-		// 判断 chip 可行性: 所有 bank 都必须 feasible
-		chipFeasible := true
-		for _, bankRaw := range cppResp.Runs {
-			var bankObj map[string]interface{}
-			if err := json.Unmarshal(bankRaw, &bankObj); err == nil {
-				if f, ok := bankObj["feasible"].(bool); ok && !f {
-					chipFeasible = false
-				}
-			}
-		}
-
-		if chipFeasible {
+		chips = append(chips, cr.chip)
+		totalSparse += cr.sparse
+		if cr.chipFeasible {
 			feasibleChips++
 		}
-
-		chip := map[string]interface{}{
-			"chip":           i,
-			"sampledSparse":  sparse,
-			"sampledRowFail": rowfail,
-			"sampledColFail": colfail,
-			"chipFeasible":   chipFeasible,
-			"banks":          cppResp.Runs,
-		}
-		chips = append(chips, chip)
 	}
 
 	avgSparse := 0.0
@@ -258,6 +421,11 @@ func (r *Runner) RunChipLevel(ctx context.Context, req *SolveRequest) (json.RawM
 
 func (r *Runner) runOnce(ctx context.Context, req *SolveRequest) (json.RawMessage, error) {
 	args := buildArgs(req)
+	return r.execSolver(ctx, args)
+}
+
+// execSolver 执行 C++ solver 子进程
+func (r *Runner) execSolver(ctx context.Context, args []string) (json.RawMessage, error) {
 	cmd := exec.CommandContext(ctx, r.binaryPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -265,14 +433,14 @@ func (r *Runner) runOnce(ctx context.Context, req *SolveRequest) (json.RawMessag
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("timed out")
+			return nil, fmt.Errorf("solver timed out")
 		}
-		return nil, fmt.Errorf("%v\nstderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("solver failed: %v\nstderr: %s", err, stderr.String())
 	}
 
 	raw := stdout.Bytes()
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("invalid JSON: %s", string(raw))
+		return nil, fmt.Errorf("invalid JSON: %s\nstderr: %s", string(raw), stderr.String())
 	}
 	return json.RawMessage(raw), nil
 }

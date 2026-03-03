@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"cxmt-ra-smart-eval/engine/handler"
@@ -99,6 +100,7 @@ func main() {
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("🚀 DRAM Repair Solver starting on %s", addr)
 	log.Printf("📍 Solver binary: %s", solverPath)
+	log.Printf("⚡ Parallel workers: %d (CPU cores: %d)", runtime.NumCPU()/2, runtime.NumCPU())
 	log.Printf("📡 Endpoints:")
 	log.Printf("   POST /api/v1/solve   - Run repair solver")
 	log.Printf("   GET  /api/v1/health  - Health check")
