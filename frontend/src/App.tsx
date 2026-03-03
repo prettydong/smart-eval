@@ -1,8 +1,17 @@
 import { useState, useCallback } from 'react';
-import { Box, Typography, Stack, Snackbar, Alert, Chip } from '@mui/material';
+import { Box, Typography, Stack, Snackbar, Alert, Chip, Tooltip } from '@mui/material';
+import ExploreTwoToneIcon from '@mui/icons-material/ExploreTwoTone';
+import MemoryTwoToneIcon from '@mui/icons-material/MemoryTwoTone';
+import AccountCircleTwoToneIcon from '@mui/icons-material/AccountCircleTwoTone';
+import StorageTwoToneIcon from '@mui/icons-material/DatasetTwoTone';
+import AssignmentTwoToneIcon from '@mui/icons-material/AssignmentTwoTone';
 import ControlPanel from './components/ControlPanel';
 import ResultPanel from './components/ResultPanel';
 import RepairMap from './components/RepairMap';
+import ArchPanel from './components/ArchPanel';
+import ArchListPanel from './components/ArchListPanel';
+import ArchDisplay from './components/ArchDisplay';
+import { useArchState } from './components/useArchState';
 import { solve } from './api/solver';
 import type { SolveRequest, SolveResponse, RunResult } from './api/solver';
 import { AppThemeProvider, useAppTheme } from './themes';
@@ -26,6 +35,8 @@ function AppInner() {
   const [selectedBank, setSelectedBank] = useState(0);
   const [activeTab, setActiveTab] = useState<'repair' | 'wafer'>('repair');
   const [scrollToChip, setScrollToChip] = useState<number | undefined>(undefined);
+  const [activeNav, setActiveNav] = useState<'explorer' | 'arch' | 'dataset' | 'task'>('explorer');
+  const arch = useArchState();
 
   const handleSolve = useCallback(async (req: SolveRequest) => {
     setLoading(true);
@@ -120,91 +131,177 @@ function AppInner() {
 
       {/* ─── Main Content ─── */}
       <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left */}
-        <Box sx={{ width: 280, minWidth: 280, bgcolor: th.bg, borderRight: `1px solid ${th.border}`, overflow: 'auto' }}>
-          <Box sx={{ px: 1, py: 0.5, bgcolor: th.bgDark, borderBottom: `1px solid ${th.border}` }}>
+        {/* ─── Activity Bar ─── */}
+        <Box sx={{
+          width: 64, minWidth: 64, bgcolor: th.bgDark, borderRight: `1px solid ${th.border}`,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1, pb: 1.5, gap: 0,
+        }}>
+          {/* Arch + Explorer — top group */}
+          {([
+            { id: 'arch', Icon: MemoryTwoToneIcon, tip: 'Arch' },
+            { id: 'dataset', Icon: StorageTwoToneIcon, tip: 'Dataset' },
+            { id: 'task', Icon: AssignmentTwoToneIcon, tip: 'Task' },
+            { id: 'explorer', Icon: ExploreTwoToneIcon, tip: 'Explorer' },
+          ] as const).map(({ id, Icon, tip }) => {
+            const active = activeNav === id;
+            return (
+              <Tooltip key={id} title={tip} placement="right">
+                <Box onClick={() => setActiveNav(id)} sx={{
+                  width: '100%', height: 64,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  cursor: 'pointer', userSelect: 'none',
+                  borderLeft: active ? `3px solid ${th.green}` : '3px solid transparent',
+                  bgcolor: active ? th.bgSelected : 'transparent',
+                  '&:hover': { bgcolor: th.bgHover },
+                }}>
+                  <Icon sx={{ fontSize: 26, color: active ? th.text : th.textMuted, '& path:first-of-type': { opacity: active ? 0.25 : 0.15 } }} />
+                  <Typography sx={{ fontSize: '0.65rem', color: active ? th.text : th.textMuted, lineHeight: 1, letterSpacing: '0.04em' }}>{tip}</Typography>
+                </Box>
+              </Tooltip>
+            );
+          })}
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Avatar placeholder — 预留登录 */}
+          <Tooltip title="Account" placement="right">
+            <Box sx={{
+              width: 36, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', borderRadius: '50%',
+              '&:hover': { bgcolor: th.bgHover },
+            }}>
+              <AccountCircleTwoToneIcon sx={{
+                fontSize: 28, color: th.textMuted,
+                '& path:first-of-type': { opacity: 0.15 },
+              }} />
+            </Box>
+          </Tooltip>
+        </Box>
+
+        {/* ─── Left Panel ─── */}
+        <Box sx={{ width: 280, minWidth: 280, bgcolor: th.bg, borderRight: `1px solid ${th.border}`, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ px: 1, py: 0.5, bgcolor: th.bgDark, borderBottom: `1px solid ${th.border}`, flexShrink: 0 }}>
             <Typography sx={{ fontSize: '0.85rem', color: th.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              {i.explorerTitle}
+              {activeNav === 'explorer' ? i.explorerTitle
+                : activeNav === 'arch' ? 'Arch: Configs'
+                  : activeNav === 'dataset' ? 'Dataset'
+                    : 'Task'}
             </Typography>
           </Box>
-          <ControlPanel onSolve={handleSolve} loading={loading} />
+          {activeNav === 'explorer' ? (
+            <ControlPanel onSolve={handleSolve} loading={loading} />
+          ) : activeNav === 'arch' ? (
+            <ArchListPanel arch={arch} />
+          ) : (
+            <Box sx={{ p: 1.5 }}>
+              <Typography sx={{ fontSize: '0.85rem', color: th.textMuted }}>// {activeNav} — coming soon</Typography>
+            </Box>
+          )}
         </Box>
 
         {/* Center */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* ─── Tab Bar ─── */}
           <Box sx={{ display: 'flex', bgcolor: th.bgDark, borderBottom: `1px solid ${th.border}`, minHeight: 28 }}>
-            {/* Tab 1: wafer_map — chip 模式才显示，如果是 chip 模式则优先 */}
-            {result && isChipResp(result) && (
-              <Box onClick={() => setActiveTab('wafer')} sx={{
-                px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
-                bgcolor: activeTab === 'wafer' ? th.bg : 'transparent',
-                borderRight: `1px solid ${th.border}`,
-                borderTop: activeTab === 'wafer' ? `1px solid ${th.orange}` : '1px solid transparent',
-                display: 'flex', alignItems: 'center', gap: 0.5,
-              }}>
-                <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'wafer' ? th.text : th.textMuted }}>wafer_map.canvas</Typography>
-                <Chip label={`${result.chips.length} chips`} size="small" sx={{
-                  bgcolor: `${th.orange}22`, color: th.orange, height: 16, fontSize: '0.8rem',
-                }} />
+            {activeNav === 'arch' ? (
+              <Box sx={{ px: 1.5, py: 0.5, userSelect: 'none', bgcolor: th.bg, borderRight: `1px solid ${th.border}`, borderTop: `1px solid ${th.green}` }}>
+                <Typography sx={{ fontSize: '0.9rem', color: th.text }}>arch_display</Typography>
               </Box>
-            )}
-            {/* Tab 2: repair_map */}
-            <Box onClick={() => setActiveTab('repair')} sx={{
-              px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
-              bgcolor: activeTab === 'repair' ? th.bg : 'transparent',
-              borderRight: `1px solid ${th.border}`,
-              borderTop: activeTab === 'repair' ? `1px solid ${th.green}` : '1px solid transparent',
-              display: 'flex', alignItems: 'center', gap: 0.5,
-            }}>
-              <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'repair' ? th.text : th.textMuted }}>{i.repairMapTab}</Typography>
-              {currentRun && (
-                <Chip label={currentRun.feasible ? i.feasible : i.infeasible} size="small" sx={{
-                  bgcolor: currentRun.feasible ? `${th.green}22` : `${th.pink}22`,
-                  color: currentRun.feasible ? th.green : th.pink, height: 16, fontSize: '0.8rem',
-                }} />
-              )}
-            </Box>
-          </Box>
-
-          {/* ─── Content Area: 常驻挂载，CSS 切换显隐，避免 tab 切换重新 mount 导致重算 ─── */}
-          <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-            {/* Wafer panel: always mounted, hidden via visibility to preserve canvas size */}
-            <Box sx={{
-              visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'visible' : 'hidden',
-              pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'auto' : 'none',
-              width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
-            }}>
-              {result && isChipResp(result) && (
-                <WaferMap data={result} visible={activeTab === 'wafer'} onChipClick={handleWaferChipClick} />
-              )}
-            </Box>
-            {/* Repair / landing panel */}
-            <Box sx={{
-              visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'hidden' : 'visible',
-              pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'none' : 'auto',
-              width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
-            }}>
-              {currentRun ? (
-                <RepairMap run={currentRun} maxRow={configObj?.maxrow ?? 16384} maxCol={configObj?.maxcol ?? 1024} config={configObj} />
-              ) : (
-                <Box sx={{
-                  height: '100%', display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', bgcolor: th.bg, gap: 2,
+            ) : activeNav === 'dataset' ? (
+              <Box sx={{ px: 1.5, py: 0.5, userSelect: 'none', bgcolor: th.bg, borderRight: `1px solid ${th.border}`, borderTop: `1px solid ${th.green}` }}>
+                <Typography sx={{ fontSize: '0.9rem', color: th.text }}>dataset_view</Typography>
+              </Box>
+            ) : activeNav === 'task' ? (
+              <Box sx={{ px: 1.5, py: 0.5, userSelect: 'none', bgcolor: th.bg, borderRight: `1px solid ${th.border}`, borderTop: `1px solid ${th.green}` }}>
+                <Typography sx={{ fontSize: '0.9rem', color: th.text }}>task_view</Typography>
+              </Box>
+            ) : (
+              <>
+                {/* Tab 1: wafer_map — chip 模式才显示 */}
+                {result && isChipResp(result) && (
+                  <Box onClick={() => setActiveTab('wafer')} sx={{
+                    px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
+                    bgcolor: activeTab === 'wafer' ? th.bg : 'transparent',
+                    borderRight: `1px solid ${th.border}`,
+                    borderTop: activeTab === 'wafer' ? `1px solid ${th.orange}` : '1px solid transparent',
+                    display: 'flex', alignItems: 'center', gap: 0.5,
+                  }}>
+                    <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'wafer' ? th.text : th.textMuted }}>wafer_map.canvas</Typography>
+                    <Chip label={`${result.chips.length} chips`} size="small" sx={{
+                      bgcolor: `${th.orange}22`, color: th.orange, height: 16, fontSize: '0.8rem',
+                    }} />
+                  </Box>
+                )}
+                {/* Tab 2: repair_map */}
+                <Box onClick={() => setActiveTab('repair')} sx={{
+                  px: 1.5, py: 0.5, cursor: 'pointer', userSelect: 'none',
+                  bgcolor: activeTab === 'repair' ? th.bg : 'transparent',
+                  borderRight: `1px solid ${th.border}`,
+                  borderTop: activeTab === 'repair' ? `1px solid ${th.green}` : '1px solid transparent',
+                  display: 'flex', alignItems: 'center', gap: 0.5,
                 }}>
-                  <MemoryRepairSvg />
-                  <Typography sx={{ fontSize: '1.1rem', color: th.textSubtle, fontWeight: 500 }}>
-                    {i.landingTitle}
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.9rem', color: th.textMuted, maxWidth: 400, textAlign: 'center' }}>
-                    {i.landingDesc}
-                  </Typography>
+                  <Typography sx={{ fontSize: '0.9rem', color: activeTab === 'repair' ? th.text : th.textMuted }}>{i.repairMapTab}</Typography>
+                  {currentRun && (
+                    <Chip label={currentRun.feasible ? i.feasible : i.infeasible} size="small" sx={{
+                      bgcolor: currentRun.feasible ? `${th.green}22` : `${th.pink}22`,
+                      color: currentRun.feasible ? th.green : th.pink, height: 16, fontSize: '0.8rem',
+                    }} />
+                  )}
                 </Box>
-              )}
-            </Box>
+              </>
+            )}
           </Box>
 
-          {currentRun && currentRun.feasible && activeTab === 'repair' && (
+          {/* ─── Content Area ─── */}
+          <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+            {activeNav === 'arch' ? (
+              <ArchDisplay config={arch.selected ? (arch.configs.find(c => c.name === arch.selected) ?? null) : (arch.isNew ? arch.form : null)} />
+            ) : (activeNav === 'dataset' || activeNav === 'task') ? (
+              <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: th.bg }}>
+                <Typography sx={{ fontSize: '0.85rem', color: th.textMuted }}>// {activeNav}_view — coming soon</Typography>
+              </Box>
+            ) : (
+              <>
+                {/* Wafer panel */}
+                <Box sx={{
+                  visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'visible' : 'hidden',
+                  pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'auto' : 'none',
+                  width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
+                }}>
+                  {result && isChipResp(result) && (
+                    <WaferMap data={result} visible={activeTab === 'wafer'} onChipClick={handleWaferChipClick} />
+                  )}
+                </Box>
+                {/* Repair / landing panel */}
+                <Box sx={{
+                  visibility: (activeTab === 'wafer' && result && isChipResp(result)) ? 'hidden' : 'visible',
+                  pointerEvents: (activeTab === 'wafer' && result && isChipResp(result)) ? 'none' : 'auto',
+                  width: '100%', height: '100%', position: 'absolute', top: 0, left: 0,
+                }}>
+                  {currentRun ? (
+                    <RepairMap run={currentRun} maxRow={configObj?.maxrow ?? 16384} maxCol={configObj?.maxcol ?? 1024} config={configObj} />
+                  ) : (
+                    <Box sx={{
+                      height: '100%', display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', bgcolor: th.bg, gap: 2,
+                    }}>
+                      <MemoryRepairSvg />
+                      <Typography sx={{ fontSize: '1.1rem', color: th.textSubtle, fontWeight: 500 }}>
+                        {i.landingTitle}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.9rem', color: th.textMuted, maxWidth: 400, textAlign: 'center' }}>
+                        {i.landingDesc}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              </>
+            )}
+          </Box>
+
+          {currentRun && currentRun.feasible && activeTab === 'repair' && activeNav === 'explorer' && (
             <Box sx={{ px: 1, py: 0.3, bgcolor: th.bgDark, borderTop: `1px solid ${th.border}`, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: '0.85rem', color: th.textMuted }}>{statusLabel}</Typography>
               <Typography sx={{ fontSize: '0.85rem', color: th.cyan }}>{currentRun.totalFails} {i.fails}</Typography>
@@ -219,14 +316,25 @@ function AppInner() {
         <Box sx={{ width: 340, minWidth: 340, bgcolor: th.bg, borderLeft: `1px solid ${th.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Box sx={{ px: 1, py: 0.5, bgcolor: th.bgDark, borderBottom: `1px solid ${th.border}`, flexShrink: 0 }}>
             <Typography sx={{ fontSize: '0.85rem', color: th.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              {i.outputTitle}
+              {activeNav === 'arch' ? 'Arch: Editor'
+                : activeNav === 'dataset' ? 'Dataset: Info'
+                  : activeNav === 'task' ? 'Task: Info'
+                    : i.outputTitle}
             </Typography>
           </Box>
-          <ResultPanel
-            data={result} selectedRun={selectedRun} onSelectRun={setSelectedRun}
-            selectedChip={selectedChip} selectedBank={selectedBank} onSelectChipBank={handleSelectChipBank}
-            scrollToChip={scrollToChip}
-          />
+          {activeNav === 'arch' ? (
+            <ArchPanel arch={arch} />
+          ) : (activeNav === 'dataset' || activeNav === 'task') ? (
+            <Box sx={{ p: 1.5 }}>
+              <Typography sx={{ fontSize: '0.85rem', color: th.textMuted }}>// {activeNav} details — coming soon</Typography>
+            </Box>
+          ) : (
+            <ResultPanel
+              data={result} selectedRun={selectedRun} onSelectRun={setSelectedRun}
+              selectedChip={selectedChip} selectedBank={selectedBank} onSelectChipBank={handleSelectChipBank}
+              scrollToChip={scrollToChip}
+            />
+          )}
         </Box>
       </Box>
 

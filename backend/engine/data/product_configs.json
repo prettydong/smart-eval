@@ -1,6 +1,22 @@
 [
   {
     "name": "CJR",
+    "mode": "ccr",
+    "maxrow": 16384,
+    "maxcol": 1024,
+    "rowcap": 128,
+    "sectioncnt": 48,
+    "colseg": 2,
+    "sectionGroupSize": 2048,
+    "subsectionSize": 344,
+    "subsectionsPerGroup": 6,
+    "cpsPerRegion": 2,
+    "lcrCap": 2,
+    "ccrGroupsPerSection": 8,
+    "ccrCap": 2
+  },
+  {
+    "name": "JJR",
     "mode": "lcr",
     "maxrow": 16384,
     "maxcol": 1024,
